@@ -88,6 +88,17 @@ class SavegameBrowser:
                 for i, item in enumerate(svalue):
                     self.add_table(tables, item, f"{table_key}.{field[2]}", f"{prefix}{field[2]}[{i}].")
 
+    def add_slxi(self, fields):
+        for key, value in fields.items():
+            key_field = urwid.AttrMap(urwid.Text(key), None, focus_map="reversed")
+            value_field = urwid.Text(json.dumps(value))
+            self.fields.append(
+                urwid.Columns(
+                    [(50, key_field), value_field],
+                    dividechars=2,
+                )
+            )
+
     def IndexFocus(self):
         self.fields.clear()
 
@@ -100,7 +111,10 @@ class SavegameBrowser:
         tables = self._savegame.tables[chunk]
         fields = self._savegame.items[chunk][index]
 
-        self.add_table(tables, fields)
+        if "slxi" in tables:
+            self.add_slxi(fields)
+        else:
+            self.add_table(tables, fields)
 
     def __init__(self, savegame):
         self._savegame = savegame

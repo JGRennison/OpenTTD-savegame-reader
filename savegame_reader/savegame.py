@@ -36,6 +36,7 @@ class Savegame(PassthroughReader):
 
             key_length, index_size = reader.gamma()
             key = reader.read(key_length)
+#            print(f"{type}, {key.decode()}\n")
             field_type = FieldType(type & 0xf)
             fields.append((field_type, True if type & FIELD_TYPE_HAS_LENGTH_FIELD else False, key.decode()))
 
@@ -104,7 +105,10 @@ class Savegame(PassthroughReader):
             type = m & 0xF
             if type == 0:
                 size = (m >> 4) << 24 | reader.uint24()
-                self.read_item(tag, {}, -1, reader.read(size))
+                if tag == "SLXI":
+                    self.read_slxi(tag, reader.read(size))
+                else:
+                    self.read_item(tag, {}, -1, reader.read(size))
             elif 1 <= type <= 4:
                 if type >= 3:  # CH_TABLE or CH_SPARSE_TABLE
                     size = reader.gamma()[0] - 1
@@ -170,3 +174,57 @@ class Savegame(PassthroughReader):
                     raise ValidationException(f"Junk at end of chunk {tag}")
         else:
             self.tables[tag] = {"unsupported": ""}
+
+    def read_slxi(self, tag, data):
+        data = memoryview(data)
+
+        self.tables[tag] = {"unsupported": ""}
+
+        chunk_version, data = self.read_uint32(data)
+        if chunk_version > 0:
+            return
+        chunk_flags, data = self.read_uint32(data)
+        if chunk_flags != 0:
+            return
+
+        self.tables[tag] = {"slxi": ""}
+
+        item_count, data = self.read_uint32(data)
+        for idx in range(item_count):
+            flags, data = self.read_uint32(data)
+            version, data = self.read_uint16(data)
+            name, data = self.read_string(data)
+
+            flag_names = []
+            if (flags & 1) != 0:
+                flag_names.append("ignorable unknown")
+            if (flags & 2) != 0:
+                flag_names.append("ignorable version")
+            if (flags & 4) != 0:
+                flag_names.append("extra data present")
+            if (flags & 8) != 0:
+                flag_names.append("chunk ID list present")
+
+            item = {
+                "name": name,
+                "version": version,
+                "flags": flag_names,
+            }
+
+            if (flags & 4) != 0:
+                extra_data_size, data = self.read_uint32(data)
+                if name == "version_label":
+                    item["extra_data"] = data[0:extra_data_size].tobytes().decode()
+                else:
+                    item["extra_data"] = list(data[0:extra_data_size])
+                data = data[extra_data_size:]
+
+            if (flags & 8) != 0:
+                extra_chunk_count, data = self.read_uint32(data)
+                chunks = []
+                for _ in range(extra_chunk_count):
+                    chunks.append(data[0:4].tobytes().decode())
+                    data = data[4:]
+                item["chunks"] = chunks
+
+            self.items[tag][str(idx)] = item
